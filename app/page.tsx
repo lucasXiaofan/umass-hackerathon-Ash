@@ -9,6 +9,7 @@ import { SuggestionPills } from "@/components/suggestion-pills"
 import { Bot, Phone, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CharacterSprite } from "@/components/character-sprite"
+import { chatAPI, voiceAPI, uploadAPI, spriteAPI } from "@/lib/api"
 
 interface Message {
   id: string
@@ -51,49 +52,99 @@ export default function Home() {
   }, [messages])
 
   const handleCallToggle = async () => {
-    setIsOnCall(!isOnCall)
-
-    if (!isOnCall) {
-      // TODO: Start voice call with Eleven Labs
-      console.log("[v0] Starting voice call with Ash...")
-      setIsSpeaking(true)
-    } else {
-      // TODO: End voice call
-      console.log("[v0] Ending voice call...")
-      setIsSpeaking(false)
+    try {
+      if (!isOnCall) {
+        console.log("Starting voice call with Ash...")
+        const result = await voiceAPI.startCall()
+        setIsOnCall(true)
+        setIsSpeaking(true)
+        console.log("Voice call started:", result)
+      } else {
+        console.log("Ending voice call...")
+        const result = await voiceAPI.stopCall()
+        setIsOnCall(false)
+        setIsSpeaking(false)
+        console.log("Voice call ended:", result)
+      }
+    } catch (error) {
+      console.error("Error toggling call:", error)
+      // Fallback to local state
+      setIsOnCall(!isOnCall)
+      setIsSpeaking(!isOnCall)
     }
   }
 
   const handleTextToSpeech = async (text: string) => {
-    setIsSpeaking(true)
+    try {
+      setIsSpeaking(true)
+      console.log("Playing speech:", text)
 
-    // TODO: Integrate with Eleven Labs API for voice output
-    console.log("[v0] Playing speech:", text)
+      // Call TTS API
+      const result = await voiceAPI.textToSpeech(text)
 
-    // Simulate speech duration
-    setTimeout(() => {
-      setIsSpeaking(false)
-    }, 3000)
+      // If result is audio blob, play it
+      if (result instanceof Blob) {
+        const audioUrl = URL.createObjectURL(result)
+        const audio = new Audio(audioUrl)
+        audio.play()
+
+        audio.onended = async () => {
+          setIsSpeaking(false)
+          await spriteAPI.setSpeaking(false)
+        }
+      } else {
+        // Simulate speech duration for mock response
+        setTimeout(async () => {
+          setIsSpeaking(false)
+          await spriteAPI.setSpeaking(false)
+        }, 3000)
+      }
+    } catch (error) {
+      console.error("Error with text-to-speech:", error)
+      // Fallback: simulate speech
+      setTimeout(() => {
+        setIsSpeaking(false)
+      }, 3000)
+    }
   }
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    console.log("[v0] Processing file:", file.name)
+    console.log("Processing file:", file.name)
 
-    // TODO: Process file to extract dates and create reminders
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      text: `Got it! I'm scanning "${file.name}" for important dates and deadlines. I'll set up reminders for you automatically.`,
-      isUser: false,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    try {
+      // Upload file to backend
+      const result = await uploadAPI.uploadFile(file)
+
+      const systemMessage: Message = {
+        id: Date.now().toString(),
+        text: result.message || `Got it! I'm scanning "${file.name}" for important dates and deadlines. I'll set up reminders for you automatically.`,
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      }
+      setMessages((prev) => [...prev, systemMessage])
+
+      console.log("File upload result:", result)
+    } catch (error) {
+      console.error("Error uploading file:", error)
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        text: `Sorry, I had trouble processing "${file.name}". Please try again.`,
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      }
+      setMessages((prev) => [...prev, errorMessage])
     }
-    setMessages((prev) => [...prev, systemMessage])
   }
 
   const handleSubmit = async () => {
-    if (!inputValue.trim()) return
+    console.log("handleSubmit called, inputValue:", inputValue)
+    if (!inputValue.trim()) {
+      console.log("Input is empty, returning")
+      return
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -102,7 +153,9 @@ export default function Home() {
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }
 
+    console.log("Adding user message:", userMessage)
     setMessages((prev) => [...prev, userMessage])
+    const currentInput = inputValue
     setInputValue("")
     setIsLoading(true)
 
@@ -113,36 +166,41 @@ export default function Home() {
       }, 500)
     }
 
-    setTimeout(() => {
+    try {
+      // Call Flask API
+      console.log("Calling API with message:", currentInput)
+      const response = await chatAPI.sendMessage(currentInput)
+      console.log("API response:", response)
+
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: getAIResponse(inputValue),
+        text: response.response,
+        isUser: false,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      }
+      console.log("Adding AI response:", aiResponse)
+      setMessages((prev) => [...prev, aiResponse])
+      setIsLoading(false)
+
+      // Play TTS if should_speak is true
+      if (response.should_speak) {
+        // handleTextToSpeech(aiResponse.text)
+        console.log("suppose to do tts")
+
+      }
+    } catch (error) {
+      console.error("Error sending message:", error)
+      setIsLoading(false)
+
+      // Show error message - backend might not be running
+      const aiResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "Oops! I'm having trouble connecting to my backend. Make sure the Flask server is running on http://localhost:5001",
         isUser: false,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }
       setMessages((prev) => [...prev, aiResponse])
-      setIsLoading(false)
-
-      handleTextToSpeech(aiResponse.text)
-    }, 1500)
-  }
-
-  const getAIResponse = (userInput: string): string => {
-    const input = userInput.toLowerCase()
-
-    if (input.includes("today") || input.includes("focus")) {
-      return "Hey! Based on your deadlines, I'd say tackle that CS assignment first - it's due in 2 days. After that, maybe review your chem notes? You've got a quiz coming up Thursday. Want me to block out some time for these?"
     }
-    if (input.includes("finals") || input.includes("exam")) {
-      return "On it! I'll start giving you heads up about finals 2 weeks out. That's serious stuff, so I'll make sure you've got plenty of time to prep. I'll check in with you periodically too - we got this!"
-    }
-    if (input.includes("project") || input.includes("assignment")) {
-      return "Cool, I'll keep that on my radar. I'll give you a reminder 3 days before so you've got time to wrap it up without stressing. Need help breaking it down into smaller chunks?"
-    }
-    if (input.includes("week") || input.includes("upcoming")) {
-      return "Looking at your week: you've got that bio lab report Tuesday, math problem set Thursday, and don't forget about the study group Friday evening. Pretty manageable - you good with this schedule?"
-    }
-    return "Got it! I'll keep track of that for you. Just chat with me anytime you need a reminder or want to know what's coming up. I'm here to help you stay on top of things without the stress!"
   }
 
   const handleSuggestionClick = (suggestion: string) => {
