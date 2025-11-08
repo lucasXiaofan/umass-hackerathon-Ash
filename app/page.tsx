@@ -2,13 +2,14 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { ChatInput, ChatInputTextArea, ChatInputSubmit } from "@/components/ui/chat-input"
 import { ChatMessage } from "@/components/chat-message"
 import { SuggestionPills } from "@/components/suggestion-pills"
 import { Bot, Phone, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CharacterSprite } from "@/components/character-sprite"
+import { AvatarAssistant } from "@/components/avatar-assistant"
 
 interface Message {
   id: string
@@ -151,6 +152,18 @@ export default function Home() {
 
   const currentSuggestions = messages.length > 0 ? followUpSuggestions : initialSuggestions
 
+  // Get the last AI message for avatar expression - useMemo to ensure it updates
+  const lastAIMessage = useMemo(() => {
+    const lastMessage = messages.filter((m) => !m.isUser).slice(-1)[0]
+    return lastMessage?.text || ""
+  }, [messages])
+
+  // Get the last AI message ID to track when a new message arrives
+  const lastAIMessageId = useMemo(() => {
+    const lastMessage = messages.filter((m) => !m.isUser).slice(-1)[0]
+    return lastMessage?.id || ""
+  }, [messages])
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
@@ -206,7 +219,7 @@ export default function Home() {
           <div className="flex flex-col items-center justify-center min-h-[calc(100vh-5rem)] px-6">
             <div className="w-full max-w-2xl">
               <div className="flex justify-center mb-8">
-                <CharacterSprite isSpeaking={isSpeaking} size="large" />
+                <AvatarAssistant message={lastAIMessage} isTyping={isLoading} size="large" />
               </div>
 
               <div className="text-center mb-12"></div>
@@ -268,7 +281,7 @@ export default function Home() {
 
             {/* Sidebar */}
             <div className="hidden lg:flex items-center justify-center w-[28rem] flex-shrink-0 border-l border-border fixed right-0 top-20 bottom-0">
-              <CharacterSprite isSpeaking={isSpeaking} size="large" />
+              <AvatarAssistant message={lastAIMessage} isTyping={isLoading} size="medium" />
             </div>
           </div>
         )}
